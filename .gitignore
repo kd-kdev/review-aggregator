@@ -6,8 +6,6 @@ __pycache__/
 # C extensions
 *.so
 
-/.vscode
-
 # Distribution / packaging
 .Python
 build/
@@ -153,6 +151,7 @@ activemq-data/
 .env
 .envrc
 .venv
+.vscode
 env/
 venv/
 ENV/
