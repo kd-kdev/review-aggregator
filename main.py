@@ -5,6 +5,7 @@ import json
 from flask import request, jsonify, render_template
 from config import app
 from pydantic import BaseModel
+from models import QueryMeta
 
 
 @app.route("/")
@@ -42,13 +43,6 @@ def get_info(game_id):
     response_dict = (
         response.json()
     )  # parses the HTTP response body as JSON & returns a python dict
-
-    class QueryMeta(BaseModel):  # definition should be in it's own file
-        num_reviews: int
-        review_score: int
-        total_positive: int
-        total_negative: int
-        total_reviews: int
 
     query_summary = response_dict.get(
         "query_summary"
