@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="static/style.css" />
     <script
       src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js"
       integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ"
@@ -12,13 +13,23 @@
     <title>Review aggregator</title>
   </head>
   <body>
-    <h1>review aggregator homepage</h1>
-    <p>testing in progress</p>
+    <div class="container">
+      <div class="content-wrapper">
+        <div class="header">
+          <p>header - site name + search bar</p>
+        </div>
+        <div class="main-content">
+          <p>main content, tabs with reviews + a summary at the top</p>
+          <button hx-get="/get_game" hx-target="#result" hx-trigger="click">
+            Get Reviews
+          </button>
 
-    <button hx-get="/get_game" hx-target="#result" hx-trigger="click">
-      Get Reviews
-    </button>
-
-    <div id="result"></div>
+          <div id="result"></div>
+        </div>
+        <div class="footer">
+          <p>footer - contains copyright + disclaimers</p>
+        </div>
+      </div>
+    </div>
   </body>
 </html>
