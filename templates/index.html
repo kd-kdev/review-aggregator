@@ -25,6 +25,16 @@
           </button>
 
           <div id="result"></div>
+
+          <button
+            hx-get="/get_info/1030300"
+            hx-target="#test-box"
+            hx-trigger="click"
+          >
+            Get info for box
+          </button>
+
+          <div id="test-box"></div>
         </div>
         <div class="footer">
           <p>footer - contains copyright + disclaimers</p>
