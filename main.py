@@ -54,5 +54,14 @@ def get_info(game_id):
     return parsed.model_dump_json(indent=2)
 
 
+# Search endpoint
+@app.route("/search?")
+def search():
+    text = request.form["text"]
+    text_str = str(text)
+
+    return text_str
+
+
 if __name__ == "__main__":
     app.run(debug=True)

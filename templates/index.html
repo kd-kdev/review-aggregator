@@ -17,9 +17,24 @@
       <div class="content-wrapper">
         <div class="header">
           <p>header - site name + search bar</p>
+          <form method="POST">
+            <input
+              name="text"
+              type="text"
+              placeholder="Search.."
+              hx-get="/search"
+              hx-trigger="change"
+              hx-target="#search-results"
+            />
+          </form>
+
+          <div id="search-results"></div>
         </div>
         <div class="main-content">
-          <p>main content, tabs with reviews + a summary at the top</p>
+          <p>
+            main content, tabs with reviews + a summary at the top, at the very
+            top should be general info about game reviews
+          </p>
           <button hx-get="/get_game" hx-target="#result" hx-trigger="click">
             Get Reviews
           </button>
