@@ -5,16 +5,20 @@ from psycopg2.extras import execute_values
 from datetime import datetime
 import locale
 import time
+import os
+from dotenv import load_dotenv
 
 # -----------------------------
 # Database configuration
 # -----------------------------
+load_dotenv()
+
 DB_CONFIG = {
-    "dbname": "postgres",
-    "user": "postgres",
-    "password": "mysecretpassword",
-    "host": "localhost",
-    "port": 5432,
+    "dbname": os.getenv("DB_NAME"),
+    "user": os.getenv("DB_USER"),
+    "password": os.getenv("DB_PASSWORD"),
+    "host": os.getenv("DB_HOST"),
+    "port": int(os.getenv("DB_PORT", 5432)),
 }
 
 

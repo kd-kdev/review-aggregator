@@ -6,6 +6,21 @@ from flask import request, jsonify, render_template
 from config import app
 from pydantic import BaseModel
 from models import QueryMeta
+import os
+from dotenv import load_dotenv
+
+# -----------------------------
+# Database configuration
+# -----------------------------
+load_dotenv()
+
+DB_CONFIG = {
+    "dbname": os.getenv("DB_NAME"),
+    "user": os.getenv("DB_USER"),
+    "password": os.getenv("DB_PASSWORD"),
+    "host": os.getenv("DB_HOST"),
+    "port": int(os.getenv("DB_PORT", 5432)),
+}
 
 
 @app.route("/")
