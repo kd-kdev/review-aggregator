@@ -104,7 +104,7 @@ def main():
                 game_data["publishers"],
                 game_data["platforms"],
                 game_data["release_date"],
-                datetime.utcnow(),  # last_updated
+                datetime.now(),  # last_updated
             )
         )
         time.sleep(0.2)  # be polite to Steam's API
