@@ -18,40 +18,22 @@
         <div class="header">
           <a href="/">SteamReviews+</a>
           <p>header - site name + search bar</p>
-          <form method="POST">
+          <form method="GET">
             <input
-              name="text"
-              type="text"
+              id="searchBox"
+              name="g"
               placeholder="Search.."
-              hx-get="/search"
-              hx-trigger="change"
-              hx-target="#search-results"
+              hx-get="/search/results"
+              hx-trigger="keyup changed delay:400ms"
+              hx-target=".main-content"
+              hx-push-url="true"
             />
           </form>
-
-          <div id="search-results"></div>
         </div>
         <div class="main-content">
-          <p>
-            main content, tabs with reviews + a summary at the top, at the very
-            top should be general info about game reviews
-          </p>
-          <button hx-get="/get_game" hx-target="#result" hx-trigger="click">
-            Get Reviews
-          </button>
-
-          <div id="result"></div>
-
-          <button
-            hx-get="/get_info/1030300"
-            hx-target="#test-box"
-            hx-trigger="click"
-          >
-            Get info for box
-          </button>
-
-          <div id="test-box"></div>
+          <p>Welcome to SteamReviews+ a review aggregator!</p>
         </div>
+
         <div class="footer-links">
           <p>contains links to other pages</p>
           <a
