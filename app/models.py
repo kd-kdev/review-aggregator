@@ -1,7 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import date, datetime
-
-db = SQLAlchemy()
+from app import db
 
 
 class Game(db.Model):

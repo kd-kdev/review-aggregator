@@ -1,6 +1,7 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
+from flask_cors import CORS
 import os
 
 db = SQLAlchemy()
@@ -16,6 +17,7 @@ def create_app():
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "devkey")
 
     db.init_app(app)
+    CORS(app)
 
     from app.routes.main import main_bp
     from app.routes.search import search_bp
