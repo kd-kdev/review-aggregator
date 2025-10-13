@@ -16,6 +16,7 @@
     <div class="container">
       <div class="content-wrapper">
         <div class="header">
+          <a href="/">SteamReviews+</a>
           <p>header - site name + search bar</p>
           <form method="POST">
             <input
@@ -50,6 +51,31 @@
           </button>
 
           <div id="test-box"></div>
+        </div>
+        <div class="footer-links">
+          <p>contains links to other pages</p>
+          <a
+            hx-get="/about"
+            hx-target=".main-content"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            >About</a
+          >
+          <a
+            hx-get="/about"
+            hx-target=".main-content"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            >Contact</a
+          >
+
+          <a
+            hx-get="/privacy"
+            hx-target=".main-content"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            >Privacy</a
+          >
         </div>
         <div class="footer">
           <p>footer - contains copyright + disclaimers</p>

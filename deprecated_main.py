@@ -5,7 +5,7 @@ import json
 from flask import Flask, request, jsonify, render_template, abort
 from config import app
 from pydantic import BaseModel
-from models import db, Game
+from app.models import db, Game
 import os
 from dotenv import load_dotenv
 import sqlalchemy as sa
@@ -25,21 +25,6 @@ DB_CONFIG = {
     "host": os.getenv("DB_HOST"),
     "port": int(os.getenv("DB_PORT", 5432)),
 }
-
-
-# Should be moved to 'schemas.py' later
-class GameSchema(BaseModel):
-    appid: int
-    name: str
-    capsule_imagev5: str | None
-    developers: str | None
-    publishers: str | None
-    platforms: str | None
-    release_date: date | None
-    last_updated: datetime | None
-
-    class Config:
-        from_attributes = True
 
 
 # ---------------------
@@ -95,14 +80,6 @@ def get_info(game_id):
 
 
 # Search endpoint
-@app.route("/search", methods=["GET"])
-def search():
-    text = request.args.get("g", None)
-
-    games = Game.query.filter(Game.name.ilike(f"%{text}%")).all()
-    results = [GameSchema.model_validate(game).model_dump() for game in games]
-
-    return jsonify(results)
 
 
 if __name__ == "__main__":
