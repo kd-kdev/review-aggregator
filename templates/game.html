@@ -3,9 +3,67 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Document</title>
+    <link rel="stylesheet" href="../static/style.css" />
+    <script
+      src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js"
+      integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ"
+      crossorigin="anonymous"
+    ></script>
+
+    <title>{{ game.name }}</title>
   </head>
   <body>
-    <h1>this is the game page</h1>
+    <div class="container">
+      <div class="content-wrapper">
+        <div class="header">
+          <a href="/">SteamReviews+</a>
+          <p>header - site name + search bar</p>
+          <form method="GET">
+            <input
+              id="searchBox"
+              name="g"
+              placeholder="Search.."
+              hx-get="/search/results"
+              hx-trigger="keyup changed delay:400ms"
+              hx-target=".main-content"
+              hx-push-url="true"
+            />
+          </form>
+        </div>
+        <div class="main-content">
+          <h1>this is the game page</h1>
+          <div>{% include "_game_info.html" %}</div>
+        </div>
+
+        <div class="footer-links">
+          <p>contains links to other pages</p>
+          <a
+            hx-get="/about"
+            hx-target=".main-content"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            >About</a
+          >
+          <a
+            hx-get="/about"
+            hx-target=".main-content"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            >Contact</a
+          >
+
+          <a
+            hx-get="/privacy"
+            hx-target=".main-content"
+            hx-swap="innerHTML"
+            hx-push-url="true"
+            >Privacy</a
+          >
+        </div>
+        <div class="footer">
+          <p>footer - contains copyright + disclaimers</p>
+        </div>
+      </div>
+    </div>
   </body>
 </html>
