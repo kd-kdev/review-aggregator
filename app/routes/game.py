@@ -1,8 +1,24 @@
 from flask import Blueprint, jsonify, render_template
 from app.models import Game, QuerySummary
 from app.schemas import GameSchema
+from flask_restx import Namespace, Resource, fields
 
 game_bp = Blueprint("game", __name__)
+
+# Docs for swagger
+game_ns = Namespace("game", description="Game operations")
+
+game_model = game_ns.model(
+    "Game",
+    {
+        "appid": fields.Integer(),
+        "name": fields.String(),
+        "developers": fields.String(),
+        "publishers": fields.String(),
+        "platforms": fields.String(),
+        "release_date": fields.String(),
+    },
+)
 
 
 @game_bp.route("/<int:game_id>", methods=["GET"])

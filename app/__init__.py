@@ -2,9 +2,17 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
 from flask_cors import CORS
+from flask_restx import Api
 import os
 
 db = SQLAlchemy()
+# Flask-RESTX API
+api = Api(
+    version="1.0",
+    title="Steam Reviews API",
+    description="API for Steam game reviews",
+    doc="/docs",  # Swagger UI available at /docs
+)
 
 
 def create_app():
