@@ -1,7 +1,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import date, datetime
-from app import db
+from . import db
 
 
 class Game(db.Model):

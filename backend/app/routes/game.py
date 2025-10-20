@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, render_template
-from app.models import Game, QuerySummary
-from app.schemas import GameSchema
+from ..models import Game, QuerySummary
+from ..schemas import GameSchema
 from flask_restx import Namespace, Resource, fields
 
 game_bp = Blueprint("game", __name__)

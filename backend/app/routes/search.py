@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, jsonify
-from app.models import Game
-from app.schemas import GameSchema
+from ..models import Game
+from ..schemas import GameSchema
 
 search_bp = Blueprint("search", __name__)
 

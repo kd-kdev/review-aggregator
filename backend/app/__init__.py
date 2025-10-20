@@ -27,9 +27,9 @@ def create_app():
     db.init_app(app)
     CORS(app)
 
-    from app.routes.main import main_bp
-    from app.routes.search import search_bp
-    from app.routes.game import game_bp
+    from .routes.main import main_bp
+    from .routes.search import search_bp
+    from .routes.game import game_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(search_bp, url_prefix="/search")
