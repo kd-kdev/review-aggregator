@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, render_template
 from ..models import Game, QuerySummary
+
 from ..schemas import GameSchema
 from flask_restx import Namespace, Resource, fields
 
