@@ -1,0 +1,73 @@
+/* ================================
+   Global Reset / Normalization
+   ================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ================================
+   Root & Typography
+   ================================ */
+
+html {
+  font-size: 100%; /* 16px base, respects user settings */
+}
+
+body {
+  min-height: 100vh;
+  font-family: "IBM Plex Sans", "Source Sans 3", system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", "Open Sans", "Helvetica Neue", sans-serif;
+
+  line-height: 1.5;
+  color: #000;
+  background-color: #fff;
+
+  /* Prevent weird mobile text scaling */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ================================
+   Common Element Defaults
+   ================================ */
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* ================================
+   Accessibility & UX
+   ================================ */
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
