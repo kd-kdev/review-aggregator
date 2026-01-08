@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:18
+    container_name: postgres-db
+    environment:
+      POSTGRES_PASSWORD: mysecretpassword
+      # POSTGRES_USER defaults to "postgres"
+      # POSTGRES_DB defaults to "postgres"
+      PGDATA: /var/lib/postgresql/18/docker
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    restart: unless-stopped
+
+  fetcher:
+    build: .
+    container_name: steam-fetcher
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:mysecretpassword@db:5432/postgres
+      DAILY_CALL_LIMIT: "100000"
+      LOG_LEVEL: "INFO"
+      # APPID_LIST: "570,440,730"  # optional for testing
+    depends_on:
+      - db
+    restart: "no"
+
+volumes:
+  pgdata:
+    external: true
+    name: 34c6a6b535511795b62f72dbe0404ed309071b43094e9ebbd0c4cdfd3e07bfcb
