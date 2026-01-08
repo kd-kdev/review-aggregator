@@ -19,6 +19,6 @@ import Footer from '@/components/Footer.vue'
 
 <style scoped>
 .d-flex {
-    background-color: #2d2d2d;
+    background-color: #121212;
 }
 </style>
