@@ -16,13 +16,9 @@ from datetime import datetime, timezone
 DATABASE_URL = os.getenv("DATABASE_URL")
 DAILY_CALL_LIMIT = int(os.getenv("DAILY_CALL_LIMIT", "100000"))
 
-# APPID list (env overrides hardcoded)
 ENV_APPIDS = os.getenv("APPID_LIST")
 
-HARDCODED_APPIDS = [
-    # Example:
-    # 570, 440, 730
-]
+HARDCODED_APPIDS = []
 
 if ENV_APPIDS:
     APPIDS = [int(x.strip()) for x in ENV_APPIDS.split(",") if x.strip()]
@@ -32,7 +28,6 @@ else:
 if not APPIDS:
     raise RuntimeError("No APPIDs provided. Set APPID_LIST or edit HARDCODED_APPIDS.")
 
-# Steam endpoints (stable)
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 REVIEWS_URL = "https://store.steampowered.com/appreviews"
 
@@ -44,7 +39,7 @@ REQUEST_SLEEP = max(0.86, 86400 / DAILY_CALL_LIMIT)
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
+    format="%(asctime)s | %(levelname)-8s | %(message)s",
 )
 logger = logging.getLogger("steam_fetcher")
 
@@ -54,7 +49,10 @@ logger = logging.getLogger("steam_fetcher")
 
 
 def get_conn():
-    return psycopg2.connect(DATABASE_URL)
+    logger.info("Connecting to PostgreSQL...")
+    conn = psycopg2.connect(DATABASE_URL)
+    logger.info("PostgreSQL connection established")
+    return conn
 
 
 # --------------------------------------------------
@@ -63,13 +61,16 @@ def get_conn():
 
 
 def fetch_game_details(appid):
+    logger.info("Fetching game details for appid=%d", appid)
     params = {"appids": appid}
     r = requests.get(APP_DETAILS_URL, params=params, timeout=30)
     r.raise_for_status()
-    data = r.json()
 
+    data = r.json()
     entry = data.get(str(appid))
+
     if not entry or not entry.get("success"):
+        logger.warning("Steam returned no game data for appid=%d", appid)
         return None
 
     game = entry["data"]
@@ -82,7 +83,11 @@ def fetch_game_details(appid):
                 tzinfo=timezone.utc
             )
         except Exception:
-            pass
+            logger.warning(
+                "Could not parse release date '%s' for appid=%d",
+                release_date_str,
+                appid,
+            )
 
     return {
         "appid": appid,
@@ -96,7 +101,7 @@ def fetch_game_details(appid):
     }
 
 
-def fetch_reviews(appid, cursor="*"):
+def fetch_reviews(appid, cursor):
     params = {
         "json": 1,
         "language": "english",
@@ -187,30 +192,63 @@ def insert_reviews(conn, appid, reviews):
         )
 
 
+def upsert_query_summary(conn, appid, summary, cursor):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO query_summaries (
+                appid,
+                num_reviews,
+                review_score,
+                review_score_desc,
+                total_positive,
+                total_negative,
+                total_reviews,
+                cursor,
+                updated_at,
+                raw_json
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s)
+            ON CONFLICT (appid) DO UPDATE SET
+                num_reviews = EXCLUDED.num_reviews,
+                review_score = EXCLUDED.review_score,
+                review_score_desc = EXCLUDED.review_score_desc,
+                total_positive = EXCLUDED.total_positive,
+                total_negative = EXCLUDED.total_negative,
+                total_reviews = EXCLUDED.total_reviews,
+                cursor = EXCLUDED.cursor,
+                updated_at = NOW(),
+                raw_json = EXCLUDED.raw_json
+            """,
+            (
+                appid,
+                summary.get("num_reviews"),
+                summary.get("review_score"),
+                summary.get("review_score_desc"),
+                summary.get("total_positive"),
+                summary.get("total_negative"),
+                summary.get("total_reviews"),
+                cursor,
+                json.dumps(summary),
+            ),
+        )
+
+
 # --------------------------------------------------
 # Main loop
 # --------------------------------------------------
 
 
 def main():
-    logger.info(
-        "Starting steam_fetcher. Apps=%d | Daily limit=%d | Sleep=%.2fs",
-        len(APPIDS),
-        DAILY_CALL_LIMIT,
-        REQUEST_SLEEP,
-    )
-
     conn = get_conn()
     calls = 0
 
     try:
         for appid in APPIDS:
-            logger.info("Processing app %d", appid)
-
             game = fetch_game_details(appid)
             calls += 1
+
             if not game:
-                logger.warning("No data for app %d", appid)
                 continue
 
             upsert_game(conn, game)
@@ -218,24 +256,36 @@ def main():
             time.sleep(REQUEST_SLEEP)
 
             cursor = "*"
+            page = 1
+            total_reviews = 0
+            first_page = True
+
             while True:
                 data = fetch_reviews(appid, cursor)
                 calls += 1
 
-                reviews = data.get("reviews", [])
-                if reviews:
-                    insert_reviews(conn, appid, reviews)
-                    conn.commit()
+                if first_page:
+                    qs = data.get("query_summary")
+                    if qs:
+                        upsert_query_summary(conn, appid, qs, data.get("cursor"))
+                        conn.commit()
+                    first_page = False
 
+                reviews = data.get("reviews", [])
                 cursor = data.get("cursor")
-                if not reviews or not cursor:
+
+                if not reviews:
                     break
 
+                insert_reviews(conn, appid, reviews)
+                conn.commit()
+                total_reviews += len(reviews)
+
+                page += 1
                 time.sleep(REQUEST_SLEEP)
 
-            if calls >= DAILY_CALL_LIMIT:
-                logger.warning("Daily API limit reached, stopping.")
-                return
+                if not cursor:
+                    break
 
     finally:
         conn.close()
