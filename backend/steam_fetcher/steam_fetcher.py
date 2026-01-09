@@ -1,27 +1,32 @@
 #!/usr/bin/env python3
 """
-steam_fetcher.py — feature-complete runner
+steam_fetcher.py — concurrent + resume + ETA
 
 Features:
 - Cursor persistence (resume from query_summaries.cursor)
-- ETA & progress reporting per app
-- Daily incremental vs backfill (REVIEW_FILTER: "recent" or "all")
-- Multi-app concurrency (MAX_WORKERS) with a global API call counter that respects DAILY_CALL_LIMIT
-- Stop-early if no new reviews for STOP_IF_NO_NEW_PAGES consecutive pages
+- Per-page cursor persistence (safe pause & resume)
+- Multi-app concurrency (MAX_WORKERS)
+- Per-app ETA (heuristic) & global ETA (heuristic)
+- Daily global API call counter enforced (DAILY_CALL_LIMIT)
+- Backfill vs incremental via REVIEW_FILTER ('all' or 'recent')
+- Stop-early strategy (STOP_IF_NO_NEW_PAGES)
+- Graceful SIGINT/SIGTERM handling (finish current page, persist)
 - Per-thread requests.Session with retries
-- Robust date parsing and durable DB writes
+- Config via environment variables
 """
 
 import os
 import time
 import json
 import logging
+import signal
 import threading
-from math import ceil
-from typing import Optional, List, Dict, Any
-from contextlib import contextmanager
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import statistics
+from math import ceil
+from typing import Optional, Dict, Any, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
+from datetime import datetime, timezone
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -29,11 +34,10 @@ from urllib3.util.retry import Retry
 
 import psycopg2
 from psycopg2.extras import execute_values
-from datetime import datetime, timezone
 from dateutil import parser as dateparser
 
 # -------------------------
-# Configuration (env-driven)
+# Config (env)
 # -------------------------
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -41,22 +45,18 @@ if not DATABASE_URL:
 
 DAILY_CALL_LIMIT = int(os.getenv("DAILY_CALL_LIMIT", "100000"))
 ENV_APPIDS = os.getenv("APPID_LIST")
-HARDCODED_APPIDS: List[int] = []  # optional
+HARDCODED_APPIDS: List[int] = []  # fallback if APPID_LIST not provided
+
 REVIEW_FILTER = os.getenv("REVIEW_FILTER", "recent")  # 'recent' or 'all'
-NUM_PER_PAGE = int(os.getenv("NUM_PER_PAGE", "100"))  # Steam max 100
+NUM_PER_PAGE = int(os.getenv("NUM_PER_PAGE", "100"))  # Steam accepts up to 100
 MAX_PAGES_PER_APP = int(os.getenv("MAX_PAGES_PER_APP", "0"))  # 0 => no limit
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "30"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
-# New behavior toggles
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", "3"))  # concurrency across appids
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "3"))
 STOP_IF_NO_NEW_PAGES = int(os.getenv("STOP_IF_NO_NEW_PAGES", "3"))
-COMMIT_EVERY_PAGES = int(os.getenv("COMMIT_EVERY_PAGES", "5"))  # batch commits
-RESUME_FROM_CURSOR = os.getenv("RESUME_FROM_CURSOR", "true").lower() in (
-    "1",
-    "true",
-    "yes",
-)
+COMMIT_EVERY_PAGES = int(os.getenv("COMMIT_EVERY_PAGES", "5"))
+RESUME_MODE = os.getenv("RESUME_MODE", "auto").lower()  # auto | restart | recent
 
 APPIDS = (
     [int(x.strip()) for x in ENV_APPIDS.split(",") if x.strip()]
@@ -64,12 +64,11 @@ APPIDS = (
     else HARDCODED_APPIDS
 )
 if not APPIDS:
-    raise RuntimeError("No APPIDs provided. Set APPID_LIST or edit HARDCODED_APPIDS.")
+    raise RuntimeError("No APPIDs provided. Set APPID_LIST or HARDCODED_APPIDS.")
 
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 REVIEWS_URL = "https://store.steampowered.com/appreviews"
 
-# compute safe sleep between requests so we don't exceed DAILY_CALL_LIMIT over 24h
 REQUEST_SLEEP = max(0.86, 86400.0 / max(1, DAILY_CALL_LIMIT))
 
 # -------------------------
@@ -82,20 +81,38 @@ logging.basicConfig(
 logger = logging.getLogger("steam_fetcher")
 
 # -------------------------
-# Global counters & locks
+# Global state
 # -------------------------
 calls_made = 0
 calls_lock = threading.Lock()
+stop_requested = False
+stop_lock = threading.Lock()
 
-# Thread-local session holder
+# per-app runtime stats (protected by stats_lock)
+app_stats: Dict[int, Dict[str, Any]] = {}
+stats_lock = threading.Lock()
+
+# thread-local session
 thread_local = threading.local()
 
 
 # -------------------------
-# Utility functions
+# Utilities
 # -------------------------
+def handle_sigterm(signum, frame):
+    global stop_requested
+    with stop_lock:
+        stop_requested = True
+    logger.warning(
+        "Shutdown signal received; current pages will finish and progress persisted."
+    )
+
+
+signal.signal(signal.SIGINT, handle_sigterm)
+signal.signal(signal.SIGTERM, handle_sigterm)
+
+
 def get_session() -> requests.Session:
-    """Return a thread-local requests.Session configured with retries."""
     if getattr(thread_local, "session", None) is None:
         s = requests.Session()
         retries = Retry(
@@ -108,57 +125,103 @@ def get_session() -> requests.Session:
 
 
 @contextmanager
-def timed(label: str, extra: str = ""):
-    start = time.perf_counter()
+def timed(name: str, extra: str = ""):
+    t0 = time.perf_counter()
     try:
         yield
     finally:
-        elapsed = time.perf_counter() - start
-        logger.info("TIMING | %-20s | %.3fs %s", label, elapsed, extra)
+        t = time.perf_counter() - t0
+        logger.info("TIMING | %-18s | %.3fs %s", name, t, extra)
 
 
 # -------------------------
 # DB helpers
 # -------------------------
 def get_conn():
-    """Return a new DB connection (caller must close)."""
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    return psycopg2.connect(DATABASE_URL)
 
 
 def get_local_review_count(conn, appid: int) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM reviews WHERE appid = %s", (appid,))
-        n = cur.fetchone()[0]
-        return n
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
 
-def get_persisted_cursor(conn, appid: int) -> Optional[str]:
+def get_last_cursor(conn, appid: int) -> Optional[str]:
     with conn.cursor() as cur:
         cur.execute("SELECT cursor FROM query_summaries WHERE appid = %s", (appid,))
         row = cur.fetchone()
-        return row[0] if row else None
+        return row[0] if row and row[0] else None
+
+
+def persist_cursor(conn, appid: int, cursor: Optional[str]):
+    """Persist cursor into query_summaries.cursor without overwriting other fields."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO query_summaries (appid, cursor, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (appid) DO UPDATE SET cursor = EXCLUDED.cursor, updated_at = NOW()
+            """,
+            (appid, cursor),
+        )
+
+
+def upsert_query_summary(conn, appid: int, summary: dict, cursor: Optional[str]):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO query_summaries (
+                appid, num_reviews, review_score, review_score_desc,
+                total_positive, total_negative, total_reviews,
+                cursor, updated_at, raw_json
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s)
+            ON CONFLICT (appid) DO UPDATE SET
+                num_reviews = EXCLUDED.num_reviews,
+                review_score = EXCLUDED.review_score,
+                review_score_desc = EXCLUDED.review_score_desc,
+                total_positive = EXCLUDED.total_positive,
+                total_negative = EXCLUDED.total_negative,
+                total_reviews = EXCLUDED.total_reviews,
+                cursor = EXCLUDED.cursor,
+                updated_at = NOW(),
+                raw_json = EXCLUDED.raw_json
+            """,
+            (
+                appid,
+                summary.get("num_reviews"),
+                summary.get("review_score"),
+                summary.get("review_score_desc"),
+                summary.get("total_positive"),
+                summary.get("total_negative"),
+                summary.get("total_reviews"),
+                cursor,
+                json.dumps(summary),
+            ),
+        )
 
 
 # -------------------------
-# Steam API helpers
+# Steam helpers
 # -------------------------
 def safe_get(
     url: str, params: Optional[Dict[str, Any]] = None, timeout: int = REQUEST_TIMEOUT
 ) -> Dict[str, Any]:
-    """GET using the thread-local session; increments global calls counter safely."""
     global calls_made
+    # check global limit
     with calls_lock:
         if calls_made >= DAILY_CALL_LIMIT:
-            raise RuntimeError(f"Daily API limit {DAILY_CALL_LIMIT} reached")
+            raise RuntimeError("Daily API call limit reached")
         calls_made += 1
-        current_call = calls_made
+        this_call = calls_made
 
     sess = get_session()
     r = sess.get(url, params=params, timeout=timeout)
     r.raise_for_status()
     logger.debug(
-        "HTTP call #%d %s params=%s status=%d", current_call, url, params, r.status_code
+        "HTTP call #%d %s params=%s status=%d", this_call, url, params, r.status_code
     )
     return r.json()
 
@@ -166,38 +229,35 @@ def safe_get(
 def parse_release_date(date_str: Optional[str]):
     if not date_str:
         return None
-    date_str = date_str.strip()
-    fmt_candidates = ("%b %d, %Y", "%d %b, %Y", "%Y-%m-%d", "%d %b %Y", "%b %Y")
-    for fmt in fmt_candidates:
-        try:
-            dt = datetime.strptime(date_str, fmt)
-            return dt.replace(tzinfo=timezone.utc)
-        except Exception:
-            continue
     try:
+        # try a few common forms quickly
+        for fmt in ("%b %d, %Y", "%d %b, %Y", "%Y-%m-%d"):
+            try:
+                dt = datetime.strptime(date_str, fmt)
+                return dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+        # fallback to dateutil
         dt = dateparser.parse(date_str)
         if not dt:
             return None
-        if not dt.tzinfo:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except Exception:
-        logger.debug("dateutil failed to parse '%s'", date_str)
+        logger.debug("Failed to parse date '%s'", date_str)
         return None
 
 
 def fetch_game_details(appid: int) -> Optional[Dict[str, Any]]:
     logger.info("Fetching game details for appid=%d", appid)
-    params = {"appids": appid}
     try:
         with timed("steam_game_details", f"appid={appid}"):
-            resp = safe_get(APP_DETAILS_URL, params=params)
+            data = safe_get(APP_DETAILS_URL, {"appids": appid})
     except Exception as e:
-        logger.warning("Failed fetching app details for %d: %s", appid, e)
+        logger.warning("Failed to fetch game details for %d: %s", appid, e)
         return None
-    entry = resp.get(str(appid))
+    entry = data.get(str(appid))
     if not entry or not entry.get("success"):
-        logger.warning("Steam returned no game data for appid=%d", appid)
+        logger.warning("No game data for appid=%d", appid)
         return None
     game = entry["data"]
     rd = game.get("release_date")
@@ -231,14 +291,12 @@ def fetch_reviews(appid: int, cursor: str) -> Dict[str, Any]:
         "num_per_page": NUM_PER_PAGE,
     }
     url = f"{REVIEWS_URL}/{appid}"
-    with timed(
-        "steam_api_call", f"appid={appid} cursor={cursor[:6] if cursor else 'None'}"
-    ):
+    with timed("steam_api_call", f"appid={appid} cursor={str(cursor)[:8]}"):
         return safe_get(url, params=params)
 
 
 # -------------------------
-# DB insertion helpers (same as before, with small changes)
+# Insert helpers
 # -------------------------
 def upsert_game(conn, game: Dict[str, Any]):
     with conn.cursor() as cur:
@@ -247,8 +305,7 @@ def upsert_game(conn, game: Dict[str, Any]):
             INSERT INTO games (
                 appid, name, capsule_imageV5,
                 developers, publishers, platforms, release_date
-            )
-            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (appid) DO UPDATE SET
                 name = EXCLUDED.name,
                 capsule_imageV5 = EXCLUDED.capsule_imageV5,
@@ -270,15 +327,13 @@ def upsert_game(conn, game: Dict[str, Any]):
         )
 
 
-def insert_reviews(conn, appid: int, reviews: List[Dict[str, Any]]):
+def insert_reviews(conn, appid: int, reviews: List[Dict[str, Any]]) -> int:
     if not reviews:
         return 0
     rows = []
     for r in reviews:
         try:
-            recommendationid = int(
-                r.get("recommendationid") or r.get("recommendation_id") or 0
-            )
+            recid = int(r.get("recommendationid") or r.get("recommendation_id") or 0)
         except Exception:
             continue
         author = r.get("author") or {}
@@ -295,7 +350,7 @@ def insert_reviews(conn, appid: int, reviews: List[Dict[str, Any]]):
 
         rows.append(
             (
-                recommendationid,
+                recid,
                 appid,
                 steamid,
                 r.get("language"),
@@ -312,10 +367,8 @@ def insert_reviews(conn, appid: int, reviews: List[Dict[str, Any]]):
                 json.dumps(r),
             )
         )
-
     if not rows:
         return 0
-
     with conn.cursor() as cur:
         execute_values(
             cur,
@@ -327,8 +380,7 @@ def insert_reviews(conn, appid: int, reviews: List[Dict[str, Any]]):
                 steam_purchase, received_for_free,
                 written_during_early_access, primarily_steam_deck,
                 raw_json
-            )
-            VALUES %s
+            ) VALUES %s
             ON CONFLICT (recommendationid) DO NOTHING
             """,
             rows,
@@ -336,115 +388,84 @@ def insert_reviews(conn, appid: int, reviews: List[Dict[str, Any]]):
     return len(rows)
 
 
-def upsert_query_summary(
-    conn, appid: int, summary: Dict[str, Any], cursor: Optional[str]
-):
-    if not summary:
-        return
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO query_summaries (
-                appid,
-                num_reviews,
-                review_score,
-                review_score_desc,
-                total_positive,
-                total_negative,
-                total_reviews,
-                cursor,
-                updated_at,
-                raw_json
-            )
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s)
-            ON CONFLICT (appid) DO UPDATE SET
-                num_reviews = EXCLUDED.num_reviews,
-                review_score = EXCLUDED.review_score,
-                review_score_desc = EXCLUDED.review_score_desc,
-                total_positive = EXCLUDED.total_positive,
-                total_negative = EXCLUDED.total_negative,
-                total_reviews = EXCLUDED.total_reviews,
-                cursor = EXCLUDED.cursor,
-                updated_at = NOW(),
-                raw_json = EXCLUDED.raw_json
-            """,
-            (
-                appid,
-                summary.get("num_reviews"),
-                summary.get("review_score"),
-                summary.get("review_score_desc"),
-                summary.get("total_positive"),
-                summary.get("total_negative"),
-                summary.get("total_reviews"),
-                cursor,
-                json.dumps(summary),
-            ),
-        )
-
-
 # -------------------------
-# Worker for a single appid
+# Worker
 # -------------------------
 def process_app(appid: int):
-    """Process one appid: fetch metadata, resume cursor, paginate reviews, persist cursor & progress."""
-    logger.info("Worker starting for appid=%d", appid)
+    global stop_requested
+    logger.info("Worker started for appid=%d", appid)
+
+    # per-worker session created lazily via get_session()
     conn = get_conn()
     try:
-        # fetch metadata
         game = fetch_game_details(appid)
+        # increment global calls was done inside fetch; safe to proceed
         if not game:
-            logger.info("No game data for %d — skipping", appid)
+            logger.info("No game details for %d; skipping", appid)
             return {"appid": appid, "inserted": 0, "pages": 0, "time": 0.0}
 
+        # upsert metadata
         upsert_game(conn, game)
         conn.commit()
 
-        # determine starting cursor
-        start_cursor = None
-        if RESUME_FROM_CURSOR:
-            start_cursor = get_persisted_cursor(conn, appid)
-            logger.info(
-                "Resuming from persisted cursor for appid=%d: %s",
-                appid,
-                str(start_cursor)[:12] if start_cursor else "None",
-            )
+        # determine resume/start cursor
+        if RESUME_MODE == "restart":
+            cursor = "*"
+        elif RESUME_MODE == "recent":
+            cursor = "*"
+        else:
+            persisted = get_last_cursor(conn, appid)
+            cursor = persisted if persisted else "*"
+        logger.info(
+            "appid=%d starting cursor=%s (mode=%s)",
+            appid,
+            str(cursor)[:12],
+            RESUME_MODE,
+        )
 
-        cursor = start_cursor or "*"
-
-        # get remote totals if available (for ETA)
-        qs_row = None
+        # determine remote total for ETA (if available)
+        remote_total = None
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT total_reviews FROM query_summaries WHERE appid = %s", (appid,)
             )
-            row = cur.fetchone()
-            if row:
-                qs_row = {"total_reviews": row[0]}
+            r = cur.fetchone()
+            if r and r[0]:
+                remote_total = int(r[0])
 
-        # local count
         local_count = get_local_review_count(conn, appid)
         logger.info(
-            "appid=%d local_reviews=%d remote_total=%s",
-            appid,
-            local_count,
-            qs_row.get("total_reviews") if qs_row else "unknown",
+            "appid=%d local_count=%d remote_total=%s", appid, local_count, remote_total
         )
 
         page = 1
-        total_inserted = 0
-        page_times = []
+        pages_processed = 0
+        inserted_total = 0
+        page_times: List[float] = []
         consecutive_no_new = 0
 
-        # If we already have total remote count, compute pages remaining for ETA
-        remote_total = qs_row.get("total_reviews") if qs_row else None
+        # track stats for ETA & global reporting
+        with stats_lock:
+            app_stats[appid] = {
+                "pages_done": 0,
+                "avg_page_time": 0.0,
+                "remaining_pages_est": None,
+            }
 
         while True:
-            # global call limit check
+            # check stop requested
+            with stop_lock:
+                if stop_requested:
+                    logger.warning(
+                        "Stop requested; finishing current work for appid=%d", appid
+                    )
+                    break
+
+            # enforce global call limit pre-check
             with calls_lock:
                 if calls_made >= DAILY_CALL_LIMIT:
                     logger.warning(
-                        "Global daily call limit reached. Worker for %d stopping.",
-                        appid,
+                        "Global daily call limit reached; stopping appid=%d", appid
                     )
                     break
 
@@ -452,39 +473,54 @@ def process_app(appid: int):
                 "Fetching reviews page=%d for appid=%d (cursor=%s)",
                 page,
                 appid,
-                cursor[:12] if cursor else "None",
+                str(cursor)[:12] if cursor else "None",
             )
             t0 = time.perf_counter()
             try:
                 data = fetch_reviews(appid, cursor)
             except Exception as e:
                 logger.warning(
-                    "Failed to fetch reviews for %d page=%d: %s", appid, page, e
+                    "Failed to fetch reviews for appid=%d page=%d: %s", appid, page, e
                 )
                 break
             t1 = time.perf_counter()
-            page_times.append(t1 - t0)
+            page_time = t1 - t0
+            page_times.append(page_time)
 
-            # persist query_summary on first page or when present
+            # persist query_summary if present
             qs = data.get("query_summary")
             if qs:
                 try:
                     upsert_query_summary(conn, appid, qs, data.get("cursor"))
                     conn.commit()
-                    # update remote_total for ETA
                     remote_total = qs.get("total_reviews") or remote_total
                 except Exception as e:
                     logger.warning(
                         "Failed to upsert query_summary for %d: %s", appid, e
                     )
                     conn.rollback()
+            else:
+                # still persist cursor even if no query_summary
+                try:
+                    persist_cursor(conn, appid, data.get("cursor"))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
 
+            # insert reviews
             reviews = data.get("reviews") or []
-            cursor = data.get("cursor")
+            cursor = data.get(
+                "cursor"
+            )  # update cursor from response for next iteration
 
             if not reviews:
-                logger.info("No reviews returned for appid=%d page=%d", appid, page)
                 consecutive_no_new += 1
+                logger.info(
+                    "No reviews returned for appid=%d page=%d (consecutive_no_new=%d)",
+                    appid,
+                    page,
+                    consecutive_no_new,
+                )
                 if consecutive_no_new >= STOP_IF_NO_NEW_PAGES:
                     logger.info(
                         "Stopping appid=%d after %d consecutive empty pages",
@@ -493,90 +529,135 @@ def process_app(appid: int):
                     )
                     break
             else:
-                # insert and commit in batches
-                inserted = 0
+                # do insertion
                 try:
                     inserted = insert_reviews(conn, appid, reviews)
-                    if inserted:
-                        total_inserted += inserted
-                        consecutive_no_new = 0
-                    else:
-                        consecutive_no_new += 1
                 except Exception as e:
                     logger.warning(
                         "DB insert failed for appid=%d page=%d: %s", appid, page, e
                     )
                     conn.rollback()
-                    # treat as failure page and break to avoid infinite loop
                     break
 
-                # commit periodically to reduce fsyncs
-                if page % COMMIT_EVERY_PAGES == 0:
-                    with timed("db_commit", f"appid={appid} page={page}"):
-                        conn.commit()
+                if inserted:
+                    inserted_total += inserted
+                    consecutive_no_new = 0
                 else:
-                    # still commit small metadata if query_summary updated earlier; ensure durability per page
-                    conn.commit()
+                    consecutive_no_new += 1
+
+                # commit batch/per-page durability
+                try:
+                    if page % COMMIT_EVERY_PAGES == 0:
+                        with timed("db_commit", f"appid={appid} page={page}"):
+                            conn.commit()
+                    else:
+                        conn.commit()
+                except Exception as e:
+                    logger.warning(
+                        "DB commit failed for appid=%d page=%d: %s", appid, page, e
+                    )
+                    conn.rollback()
+                    break
 
                 logger.info(
                     "Inserted %d reviews for appid=%d (page %d). Total inserted this run: %d",
                     inserted,
                     appid,
                     page,
-                    total_inserted,
+                    inserted_total,
                 )
 
+            pages_processed += 1
             page += 1
 
-            # developer safety: optional page limit
-            if MAX_PAGES_PER_APP > 0 and page > MAX_PAGES_PER_APP:
-                logger.info(
-                    "Reached MAX_PAGES_PER_APP (%d) for appid=%d — stopping pagination for this app",
-                    MAX_PAGES_PER_APP,
-                    appid,
-                )
-                break
+            # update app_stats for ETA
+            avg_time = statistics.mean(page_times) if page_times else REQUEST_SLEEP
+            # remaining reviews heuristic: remote_total - local_count (local_count may be stale; recompute)
+            local_count = get_local_review_count(conn, appid)
+            remaining_reviews = (
+                max(0, (remote_total - local_count) if remote_total else None)
+                if remote_total
+                else None
+            )
+            remaining_pages_est = (
+                ceil(remaining_reviews / NUM_PER_PAGE)
+                if remaining_reviews is not None and NUM_PER_PAGE
+                else None
+            )
 
-            # if Steam returned no cursor, stop
-            if not cursor:
-                logger.info("Cursor exhausted for appid=%d", appid)
-                break
+            with stats_lock:
+                app_stats[appid]["pages_done"] = pages_processed
+                app_stats[appid]["avg_page_time"] = avg_time
+                app_stats[appid]["remaining_pages_est"] = remaining_pages_est
 
-            # ETA reporting: estimate remaining time based on average page time
-            avg_page_time = statistics.mean(page_times) if page_times else 0.0
-            if remote_total:
-                remaining_reviews = max(
-                    0, remote_total - get_local_review_count(conn, appid)
+            # log ETA per app (heuristic)
+            if remaining_pages_est is not None and avg_time:
+                eta_secs = remaining_pages_est * avg_time
+                eta_str = (
+                    f"{eta_secs / 60:.1f}min" if eta_secs >= 60 else f"{eta_secs:.1f}s"
                 )
-                remaining_pages = (
-                    ceil(remaining_reviews / NUM_PER_PAGE) if NUM_PER_PAGE else 0
-                )
-                eta_seconds = remaining_pages * avg_page_time if avg_page_time else None
-                eta_str = f"{eta_seconds / 60:.1f}min" if eta_seconds else "unknown"
                 logger.info(
                     "ETA for appid=%d: remaining_reviews=%d remaining_pages=%d avg_page_time=%.2fs ETA=%s",
                     appid,
                     remaining_reviews,
-                    remaining_pages,
-                    avg_page_time,
+                    remaining_pages_est,
+                    avg_time,
                     eta_str,
                 )
+            else:
+                logger.info(
+                    "ETA for appid=%d: remote_total=%s avg_page_time=%.2fs ETA=unknown",
+                    appid,
+                    remote_total,
+                    avg_time,
+                )
 
-            # polite sleep (global rate limiting)
+            # developer safety
+            if MAX_PAGES_PER_APP > 0 and pages_processed >= MAX_PAGES_PER_APP:
+                logger.info(
+                    "Reached MAX_PAGES_PER_APP for appid=%d (%d) — stopping",
+                    appid,
+                    MAX_PAGES_PER_APP,
+                )
+                break
+
+            # stop if cursor exhausted
+            if not cursor:
+                logger.info("Cursor exhausted for appid=%d", appid)
+                break
+
+            # polite sleep
             time.sleep(REQUEST_SLEEP)
+
+        # finalize: ensure last cursor persisted
+        try:
+            persist_cursor(conn, appid, cursor)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+        # final stats update
+        with stats_lock:
+            app_stats[appid]["pages_done"] = pages_processed
+            app_stats[appid]["avg_page_time"] = (
+                statistics.mean(page_times) if page_times else 0.0
+            )
+            app_stats[appid]["remaining_pages_est"] = (
+                remaining_pages_est if "remaining_pages_est" in locals() else None
+            )
 
         elapsed = sum(page_times) if page_times else 0.0
         logger.info(
-            "Worker finished for appid=%d inserted=%d pages=%d time=%.1fs",
+            "Worker finished appid=%d inserted=%d pages=%d time=%.1fs",
             appid,
-            total_inserted,
-            max(1, page - 1),
+            inserted_total,
+            pages_processed,
             elapsed,
         )
         return {
             "appid": appid,
-            "inserted": total_inserted,
-            "pages": max(0, page - 1),
+            "inserted": inserted_total,
+            "pages": pages_processed,
             "time": elapsed,
         }
     finally:
@@ -587,7 +668,39 @@ def process_app(appid: int):
 
 
 # -------------------------
-# Main program: parallel dispatch
+# Global ETA helper
+# -------------------------
+def compute_global_eta():
+    """
+    Heuristic global ETA:
+    Sum remaining_seconds across apps and divide by active worker count.
+    This is approximate and labeled as heuristic in logs.
+    """
+    with stats_lock:
+        entries = list(app_stats.items())
+    if not entries:
+        return None
+    total_remaining_seconds = 0.0
+    total_pages_left = 0
+    valid_entries = 0
+    for appid, s in entries:
+        rem_pages = s.get("remaining_pages_est")
+        avg = s.get("avg_page_time") or 0.0
+        if rem_pages is None or avg == 0.0:
+            continue
+        total_remaining_seconds += rem_pages * avg
+        total_pages_left += rem_pages
+        valid_entries += 1
+    if valid_entries == 0:
+        return None
+    # wall-clock heuristic: assume MAX_WORKERS parallelism
+    parallelism = min(MAX_WORKERS, max(1, valid_entries))
+    wall_clock_seconds = total_remaining_seconds / parallelism
+    return wall_clock_seconds
+
+
+# -------------------------
+# Main
 # -------------------------
 def main():
     logger.info("==============================================")
@@ -601,23 +714,68 @@ def main():
     logger.info("COMMIT_EVERY_PAGES: %d", COMMIT_EVERY_PAGES)
     logger.info("Daily call limit: %d", DAILY_CALL_LIMIT)
     logger.info("Sleep between requests: %.2fs", REQUEST_SLEEP)
+    logger.info("RESUME_MODE: %s", RESUME_MODE)
     logger.info("==============================================")
 
     start = time.time()
     results = []
-    # simple global progress: estimate total remote reviews (sum of query_summaries if present)
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        futures = {ex.submit(process_app, appid): appid for appid in APPIDS}
-        for fut in as_completed(futures):
-            appid = futures[fut]
-            try:
-                res = fut.result()
-                results.append(res)
-            except Exception as e:
-                logger.exception("Worker raised for appid=%s: %s", appid, e)
 
-    total_inserted = sum(r.get("inserted", 0) for r in results)
-    total_pages = sum(r.get("pages", 0) for r in results)
+    # initialize app_stats placeholders
+    with stats_lock:
+        for aid in APPIDS:
+            app_stats[aid] = {
+                "pages_done": 0,
+                "avg_page_time": 0.0,
+                "remaining_pages_est": None,
+            }
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futures = {ex.submit(process_app, aid): aid for aid in APPIDS}
+        # periodically log global ETA while workers run
+        try:
+            while futures:
+                done, not_done = [], []
+                for fut in futures:
+                    if fut.done():
+                        done.append(fut)
+                    else:
+                        not_done.append(fut)
+                # collect completed
+                for fut in done:
+                    aid = futures.pop(fut)
+                    try:
+                        res = fut.result()
+                        results.append(res)
+                    except Exception as e:
+                        logger.exception("Worker for appid %s raised: %s", aid, e)
+                # log global ETA
+                eta_seconds = compute_global_eta()
+                if eta_seconds is not None:
+                    eta_str = (
+                        f"{eta_seconds / 60:.1f}min"
+                        if eta_seconds >= 60
+                        else f"{eta_seconds:.1f}s"
+                    )
+                    logger.info("Global ETA (heuristic): %s", eta_str)
+                # sleep briefly then continue
+                if futures:
+                    time.sleep(5)
+        except KeyboardInterrupt:
+            logger.warning(
+                "Main interrupted by user; waiting for workers to notice stop flag"
+            )
+            with stop_lock:
+                global stop_requested
+                stop_requested = True
+            # wait for futures to finish their current page
+            for fut in futures:
+                try:
+                    fut.result(timeout=60)
+                except Exception:
+                    pass
+
+    total_inserted = sum((r.get("inserted", 0) for r in results))
+    total_pages = sum((r.get("pages", 0) for r in results))
     elapsed = time.time() - start
     logger.info(
         "All workers finished. Inserted total=%d pages=%d time=%.1fs",
