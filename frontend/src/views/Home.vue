@@ -1,6 +1,5 @@
 <template>
 <main class="flex-1 p-5 bg-indigo-200 text-left">
-    <h1 class="text-2xl font-bold mb-4">Home page</h1>
     <h1>Top Games</h1>
 
     <p v-if="loading">Loading…</p>
