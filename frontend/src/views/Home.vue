@@ -5,7 +5,6 @@
     <p v-if="loading">Loading…</p>
     <p v-else-if="error">{{ error }}</p>
 
-    <!-- 👇 THIS IS THE IMPORTANT PART -->
     <GameOverviewTable
       v-else-if="Array.isArray(games)"
       :games="games"
@@ -13,6 +12,14 @@
 
     <!-- fallback guard -->
     <p v-else>No data</p>
+
+    <h1>Funny reviews section</h1>
+    <p>hand picked (for now ?) funny reviews</p>
+    <p>placeholder</p>
+
+    <h1>SteamReviews+ in numbers:</h1>
+    <p>how many games in database, reviews total, analysis etc.</p>
+    <p>placeholder</p>
 </main>
 </template>
 
@@ -21,7 +28,7 @@ import { ref, onMounted } from "vue"
 import axios from "axios"
 import GameOverviewTable from "@/components/GameOverviewTable.vue"
 
-const games = ref(null)   // 👈 START AS null (important)
+const games = ref(null)
 const loading = ref(true)
 const error = ref(null)
 
@@ -29,9 +36,9 @@ const fetchGamesOverview = async () => {
     try {
         const res = await axios.get("/api/games/overview")
 
-        console.log("API response:", res.data) // 👈 DEBUG LINE
+        console.log("API response:", res.data)
 
-        games.value = res.data.data            // 👈 MUST be array
+        games.value = res.data.data
     } catch (err) {
         console.error(err)
         error.value = "Failed to load games"
