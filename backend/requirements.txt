@@ -2,5 +2,12 @@ flask
 flask-sqlalchemy
 flask-migrate
 flask-cors
+
+pydantic>=2.5
+typing-extensions
+
 psycopg2-binary
 python-dotenv
+
+gunicorn
+werkzeug
