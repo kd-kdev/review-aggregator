@@ -6,6 +6,7 @@ import os
 from app.extensions import db, migrate
 from app.api.health import health_bp
 from app.api.games import games_bp
+from app.api.search import search_bp
 
 
 def create_app():
@@ -36,6 +37,7 @@ def create_app():
     # -------------------
     app.register_blueprint(health_bp, url_prefix="/api/health")
     app.register_blueprint(games_bp, url_prefix="/api/games")
+    app.register_blueprint(search_bp)
 
     return app
 
