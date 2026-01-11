@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <main>
     <h1>Search results for "{{ q }}"</h1>
 
     <div v-if="loading">Loading…</div>
@@ -8,7 +8,7 @@
       <GameOverviewTable :games="games" />
       <button v-if="hasMore" @click="loadMore">Load more</button>
     </div>
-  </div>
+  </main>
 </template>
 
 <script setup>
