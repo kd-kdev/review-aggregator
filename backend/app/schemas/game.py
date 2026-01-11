@@ -1,5 +1,6 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 
 
 class GameOverviewSchema(BaseModel):
@@ -14,3 +15,11 @@ class GameOverviewSchema(BaseModel):
 class GameOverviewResponse(BaseModel):
     data: List[GameOverviewSchema]
     count: int
+
+
+class GameDetailResponseSchema(BaseModel):
+    appid: int
+    name: str
+    capsule_image_v5: str | None
+    release_date: Optional[datetime]
+    review_score_desc: Optional[str]

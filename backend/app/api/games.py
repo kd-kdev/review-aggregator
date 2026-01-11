@@ -1,11 +1,13 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, abort
 from app.extensions import db
 from app.models.game import Game, QuerySummary
-from app.schemas.game import GameOverviewResponse
-
-games_bp = Blueprint("games", __name__)
+from app.schemas.game import GameDetailResponseSchema, GameOverviewResponse
 
 
+games_bp = Blueprint("games", __name__, url_prefix="/api/games")
+
+
+# Home page route -> gets overview of games + their review stats
 @games_bp.route("/overview", methods=["GET"])
 def games_overview():
     rows = (
@@ -43,3 +45,22 @@ def games_overview():
 
     response = GameOverviewResponse(data=data, count=len(data))
     return jsonify(response.model_dump())
+
+
+# Game page route - stub for now
+@games_bp.get("/<int:appid>")
+def get_game(appid: int):
+    game = db.session.query(Game).filter(Game.appid == appid).first()
+
+    if not game:
+        abort(404, description="Game not found")
+
+    summary = db.session.query(QuerySummary).filter(QuerySummary.appid == appid).first()
+
+    return GameDetailResponseSchema(
+        appid=game.appid,
+        name=game.name,
+        capsule_image_v5=game.capsule_image_v5,
+        release_date=game.release_date,
+        review_score_desc=summary.review_score_desc if summary else None,
+    ).model_dump()
