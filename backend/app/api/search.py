@@ -1,7 +1,7 @@
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, request, jsonify
 from sqlalchemy import text
 from app.extensions import db
-from app.schemas.game import GameOverviewResponse, GameOverviewSchema
+from app.schemas.game import GameOverviewResponse
 
 search_bp = Blueprint("search", __name__, url_prefix="/api/games")
 
@@ -10,14 +10,13 @@ search_bp = Blueprint("search", __name__, url_prefix="/api/games")
 def search_games():
     q = request.args.get("q", "").strip()
     if not q:
-        # return empty or top results — we'll return empty with count 0
         return jsonify({"data": [], "count": 0})
 
-    # pagination
+    ilike_q = f"%{q}%"
+
     limit = min(int(request.args.get("limit", 20)), 100)
     offset = max(int(request.args.get("offset", 0)), 0)
 
-    # use plainto_tsquery for safe tokenization and ranking — fallback to trigram if needed
     sql = text("""
         SELECT
           appid,
@@ -29,22 +28,42 @@ def search_games():
           ts_rank_cd(search_tsv, plainto_tsquery('english', :q)) AS rank
         FROM games g
         LEFT JOIN query_summaries qs USING (appid)
-        WHERE
-          -- primary full-text match
-          (search_tsv @@ plainto_tsquery('english', :q))
+        WHERE search_tsv @@ plainto_tsquery('english', :q)
         ORDER BY rank DESC, total_reviews DESC
         LIMIT :limit OFFSET :offset
     """)
 
-    # If you want fuzzy fallback when no rows found, you'd run a second query with ILIKE
+    fallback_sql = text("""
+        SELECT
+          appid,
+          name,
+          capsule_imagev5 AS capsule_image,
+          COALESCE(qs.total_reviews, 0) AS total_reviews,
+          COALESCE(qs.total_positive, 0) AS total_positive,
+          COALESCE(qs.total_negative, 0) AS total_negative,
+          0 AS rank
+        FROM games g
+        LEFT JOIN query_summaries qs USING (appid)
+        WHERE g.name ILIKE :ilike_q
+        ORDER BY total_reviews DESC
+        LIMIT :limit OFFSET :offset
+    """)
+
     params = {"q": q, "limit": limit, "offset": offset}
     result = db.session.execute(sql, params).all()
+
+    if not result:
+        result = db.session.execute(
+            fallback_sql,
+            {"ilike_q": ilike_q, "limit": limit, "offset": offset},
+        ).all()
 
     rows = []
     for r in result:
         total = r.total_reviews or 0
         pos = r.total_positive or 0
         neg = r.total_negative or 0
+
         rows.append(
             {
                 "appid": r.appid,
