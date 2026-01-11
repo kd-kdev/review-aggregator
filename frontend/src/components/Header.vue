@@ -5,27 +5,25 @@
     </router-link>
 
     <div class="search">
-      Search bar pending
+      <SearchBar />
     </div>
   </header>
 </template>
 
-<script setup></script>
+<script setup>
+import SearchBar from "@/components/SearchBar.vue";
+</script>
 
 <style scoped>
 .app-header {
-    display: flex;
-    align-items: center;
-    /* vertical alignment */
-    justify-content: space-between;
-    /* left & right */
-    padding: 0 1rem;
-    background-color: aquamarine;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  background-color: aquamarine;
 }
 
-
 .search {
-    margin-left: auto;
-    /* optional with space-between */
+  margin-left: auto;
 }
 </style>

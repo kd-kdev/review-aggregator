@@ -25,6 +25,12 @@ const routes = [
         component: GameDetail,
         props: true,
       },
+      {
+        path: "search",
+        name: "SearchResults",
+        component: () => import("@/views/SearchResults.vue"),
+        props: (route) => ({ q: route.query.q || "" }),
+      },
     ],
   },
 ];
