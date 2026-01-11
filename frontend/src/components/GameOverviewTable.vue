@@ -28,7 +28,9 @@ defineProps({
             class="capsule"
         />
         <span class="game-name">
-            {{ game.name }}
+            <router-link :to="`/games/${game.appid}`">
+                {{ game.name }}
+            </router-link>
         </span>
         </td>
 
