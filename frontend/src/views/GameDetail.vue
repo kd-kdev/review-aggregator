@@ -34,7 +34,15 @@ onMounted(async () => {
   <main>
     <GameReviewSummary v-if="game" :game="game" />
 
-  </main>
+    <div class="center-steam">
+      <iframe
+        :src="`https://store.steampowered.com/widget/${appid}/`"
+        frameborder="0"
+        width="646"
+        height="190"
+      ></iframe>
+    </div>
+  </main> 
 </template>
 
 <style scoped>
@@ -56,5 +64,12 @@ main {
 
 .error {
   color: red;
+}
+
+.center-steam {
+  display: flex;
+  justify-content: center;
+  background: linear-gradient(130deg, #3b4351, #282e39);
+  padding: 1rem 0;
 }
 </style>
