@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
+import GameReviewSummary from "@/components/GameReviewSummary.vue";
 
 const route = useRoute();
 const appid = route.params.appid;
@@ -31,33 +32,8 @@ onMounted(async () => {
 
 <template>
   <main>
-    <div class="game-detail">
-      <div v-if="loading">Loading…</div>
+    <GameReviewSummary v-if="game" :game="game" />
 
-      <div v-else-if="error">
-        <p class="error">{{ error }}</p>
-      </div>
-
-      <div v-else>
-        <img
-          v-if="game.capsule_image_v5"
-          :src="game.capsule_image_v5"
-          alt="Game capsule"
-          class="capsule"
-        />
-
-        <h1>{{ game.name }}</h1>
-
-        <p v-if="game.release_date">
-          Released:
-          {{ new Date(game.release_date).toLocaleDateString() }}
-        </p>
-
-        <p v-if="game.review_score_desc">
-          <strong>Review score:</strong> {{ game.review_score_desc }}
-        </p>
-      </div>
-    </div>
   </main>
 </template>
 
