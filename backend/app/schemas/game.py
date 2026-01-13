@@ -23,3 +23,6 @@ class GameDetailResponseSchema(BaseModel):
     capsule_image_v5: str | None
     release_date: Optional[datetime]
     review_score_desc: Optional[str]
+    total_reviews: int
+    total_positive: int
+    total_negative: int

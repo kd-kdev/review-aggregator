@@ -57,10 +57,15 @@ def get_game(appid: int):
 
     summary = db.session.query(QuerySummary).filter(QuerySummary.appid == appid).first()
 
-    return GameDetailResponseSchema(
-        appid=game.appid,
-        name=game.name,
-        capsule_image_v5=game.capsule_image_v5,
-        release_date=game.release_date,
-        review_score_desc=summary.review_score_desc if summary else None,
-    ).model_dump()
+    return jsonify(
+        GameDetailResponseSchema(
+            appid=game.appid,
+            name=game.name,
+            capsule_image_v5=game.capsule_image_v5,
+            release_date=game.release_date,
+            review_score_desc=summary.review_score_desc if summary else None,
+            total_reviews=summary.total_reviews if summary else 0,
+            total_positive=summary.total_positive if summary else 0,
+            total_negative=summary.total_negative if summary else 0,
+        ).model_dump()
+    )
