@@ -2,6 +2,8 @@
 import { onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import GameReviewSummary from "@/components/GameReviewSummary.vue";
+import KeywordSearchLayout from "@/components/keywordSearch/KeywordSearchLayout.vue";
+
 
 const route = useRoute();
 const appid = route.params.appid;
@@ -42,6 +44,8 @@ onMounted(async () => {
         height="190"
       ></iframe>
     </div>
+          <!-- KEYWORD SEARCH -->
+      <KeywordSearchLayout :appid="appid" />
   </main> 
 </template>
 
