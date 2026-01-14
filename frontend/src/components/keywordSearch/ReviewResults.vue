@@ -1,21 +1,21 @@
 <template>
   <section class="results">
     <ReviewCard
-      v-for="r in reviews"
-      :key="r.recommendationid"
-      :review="r"
+      v-for="review in reviews"
+      :key="review.id"
+      :review="review"
     />
-
-    <button v-if="hasMore" @click="$emit('load-more')">
-      Load more
-    </button>
   </section>
 </template>
 
 <script setup>
+import ReviewCard from "./ReviewCard.vue";
+
 defineProps({
-  reviews: Array,
-  hasMore: Boolean,
+  reviews: {
+    type: Array,
+    required: true,
+  },
 });
 </script>
 
@@ -24,5 +24,6 @@ defineProps({
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  padding-bottom: 2rem;
 }
 </style>

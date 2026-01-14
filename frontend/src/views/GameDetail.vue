@@ -45,7 +45,7 @@ onMounted(async () => {
       ></iframe>
     </div>
           <!-- KEYWORD SEARCH -->
-      <KeywordSearchLayout :appid="appid" />
+      <KeywordSearchLayout :appid="Number(appid)" />
   </main> 
 </template>
 

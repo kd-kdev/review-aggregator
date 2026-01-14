@@ -12,16 +12,12 @@
         :summary="summary"
       />
     </div>
+    <ReviewFilters />
 
     <!-- LAYER 2 -->
-    <ReviewResults
-      v-if="keyword"
-      :appid="appid"
-      :keyword="keyword"
-      :initial-reviews="reviews"
-      :has-more="hasMore"
-      @load-more="loadMore"
-    />
+    <ReviewResults :reviews="reviews" />
+    
+
   </section>
 </template>
 
@@ -31,6 +27,7 @@ import { ref } from "vue";
 import KeywordSearch from "@/components/keywordSearch/KeywordSearch.vue";
 import KeywordSearchSummary from "@/components/keywordSearch/KeywordSearchSummary.vue";
 import ReviewResults from "@/components/keywordSearch/ReviewResults.vue";
+import ReviewFilters from "./ReviewFilters.vue";
 
 const props = defineProps({
   appid: {
@@ -40,15 +37,75 @@ const props = defineProps({
 });
 
 const keyword = ref("");
-const reviews = ref([]);
+//const reviews = ref([]);
 const hasMore = ref(false);
 //const summary = ref(null);
 
+// SUMMARY PLACEHOLDER VALUE FOR TESTING
 const summary = ref({
   keyword: "example",
   occurrences: 123,
   reviews_with_keyword: 45,
 });
+
+// REVIEWS FOR TESTING UI
+const reviews = ref([
+  {
+    id: 1,
+    author: "User123",
+    text: "This game is amazing and relaxing",
+    recommended: true,
+  },
+  {
+    id: 2,
+    author: "User456",
+    text: "Too grindy for my taste",
+    recommended: false,
+  },
+  {
+    id: 3,
+    author: "User456",
+    text: "Too grindy for my taste",
+    recommended: false,
+  },
+  {
+    id: 1,
+    author: "User123",
+    text: "This game is amazing and relaxing",
+    recommended: true,
+  },
+  {
+    id: 2,
+    author: "User456",
+    text: "Too grindy for my taste",
+    recommended: false,
+  },
+  {
+    id: 3,
+    author: "User456",
+    text: "Too grindy for my taste",
+    recommended: false,
+  },
+  {
+    id: 1,
+    author: "User123",
+    text: "This game is amazing and relaxing",
+    recommended: true,
+  },
+  {
+    id: 2,
+    author: "User456",
+    text: "Too grindy for my taste",
+    recommended: false,
+  },
+  {
+    id: 3,
+    author: "User456",
+    text: "Too grindy for my taste",
+    recommended: false,
+  },
+]);
+
 
 
 const offset = ref(0);
@@ -93,7 +150,6 @@ async function loadMore() {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-  margin-bottom: 1.5rem;
   background-color: chocolate;
   min-height: 8rem;
 }
