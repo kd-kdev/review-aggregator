@@ -35,6 +35,10 @@ class Review(db.Model):
     written_during_early_access = db.Column(db.Boolean)
     primarily_steam_deck = db.Column(db.Boolean)
 
+    # Playtime (new)
+    playtime_minutes = db.Column(db.Integer)
+    playtime_at_review_minutes = db.Column(db.Integer)
+
     # Raw payload
     raw_json = db.Column(db.JSON)
 
