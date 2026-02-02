@@ -8,7 +8,6 @@
       />
       <div class="divider"></div>
       <KeywordSearchSummary
-        v-if="summary"
         :summary="summary"
       />
     </div>
