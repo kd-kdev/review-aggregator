@@ -18,13 +18,24 @@ const props = defineProps({
 const isRecommended = computed(() => !!props.review.recommended);
 const recText = computed(() => (isRecommended.value ? "Recommended" : "Not Recommended"));
 
-// Playtime display (optional)
-const playtime = computed(() =>
-  props.review.playtime && props.review.playtime !== "N/A"
-    ? `${props.review.playtime} hrs on record`
-    : ""
-);
+// --- Playtime display ---
+const formattedPlaytime = computed(() => {
+  const mins = props.review.playtime_minutes;
+  if (!mins) return "";
+  const hours = Math.floor(mins / 60);
+  const minutes = mins % 60;
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+});
 
+const formattedPlaytimeAtReview = computed(() => {
+  const mins = props.review.playtime_at_review_minutes;
+  if (!mins) return "";
+  const hours = Math.floor(mins / 60);
+  const minutes = mins % 60;
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+});
+
+// --- Tags ---
 const tags = computed(() => {
   const result = [];
 
@@ -73,10 +84,10 @@ const highlightedText = computed(() => {
 
   return truncatedText.value.replace(regex, '<mark>$1</mark>');
 });
-
 </script>
 
 <template>
+
   <article class="review-card">
     <!-- HEADER -->
     <header class="heading">
@@ -98,10 +109,17 @@ const highlightedText = computed(() => {
 
         <!-- Row 2 -->
         <div class="row-bottom">
-          <span v-if="review.playtime" class="playtime">
-            {{ review.playtime }} hrs on record
-          </span>
+          <!-- Left side: playtimes -->
+          <div class="playtimes">
+            <span v-if="formattedPlaytime" class="playtime">
+              {{ formattedPlaytime }} on record
+            </span>
+            <span v-if="formattedPlaytimeAtReview" class="playtime">
+              ({{ formattedPlaytimeAtReview }} at review time)
+            </span>
+          </div>
 
+          <!-- Right side: extras / tags -->
           <div class="extras">
             <span v-for="(tag, idx) in tags" :key="idx" class="tag">
               {{ tag }}
@@ -157,6 +175,7 @@ const highlightedText = computed(() => {
   gap: 0.75rem;
   align-items: center;
   margin-bottom: 0.75rem;
+  background-color: bisque;
 }
 
 .thumb {
@@ -173,7 +192,7 @@ const highlightedText = computed(() => {
 
 .meta {
   flex: 1;
-  height: 44px;
+
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -200,6 +219,12 @@ const highlightedText = computed(() => {
   line-height: 1.2;
 }
 
+.playtimes {
+  display: flex;
+  gap: 0.3rem;
+  /* space between the two playtimes */
+}
+
 .rec-text {
   font-size: 1rem;
   font-weight: 700;
@@ -214,14 +239,14 @@ const highlightedText = computed(() => {
 .tag {
   background: #f3f3f3;
   color: #444;
-  font-size: 0.75rem;
+  font-size: 0.60rem;
   padding: 0.05rem 0.45rem;
   border-left: 3px solid #b5b5b5;
 }
 
 .orig-link {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

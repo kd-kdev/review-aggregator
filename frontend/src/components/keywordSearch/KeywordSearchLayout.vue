@@ -59,11 +59,9 @@ function mapBackendReviews(rawReviews) {
     text: r.review,
     recommended: r.voted_up,
 
-    // Steam gives minutes
-    playtime:
-      typeof r.playtime_forever === "number"
-        ? Math.round(r.playtime_forever / 60)
-        : null,
+    // Use the new backend keys
+    playtime_minutes: r.playtime_minutes ?? null,
+    playtime_at_review_minutes: r.playtime_at_review_minutes ?? null,
 
     steam_purchase: r.steam_purchase,
     written_during_early_access: r.written_during_early_access,
