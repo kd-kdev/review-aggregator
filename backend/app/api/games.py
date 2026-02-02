@@ -125,7 +125,9 @@ def keyword_reviews(appid: int):
     ) or 0
 
     # Build Pydantic models
-    review_models = [ReviewSchema.model_validate(r) for r in reviews]
+    review_models = [
+        ReviewSchema.model_validate(r, from_attributes=True) for r in reviews
+    ]
 
     summary_model = ReviewKeywordSummarySchema(
         keyword=keyword,
