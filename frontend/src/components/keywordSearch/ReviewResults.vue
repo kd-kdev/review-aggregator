@@ -8,27 +8,23 @@
       v-for="review in reviews"
       :key="review.recommendationid"
       :review="review"
-      :keyword="selectedKeyword"
+      :keyword="props.selectedKeyword"
     />
   </section>
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { defineProps } from "vue";
 import ReviewCard from "./ReviewCard.vue";
 
-// reactive selected keyword
-const selectedKeyword = ref("");
-
-function onKeywordSelect(keyword) {
-  console.log("Keyword selected:", keyword); // will log: "performance"
-  selectedKeyword.value = keyword; // now it's just a string
-}
-
-defineProps({
+const props = defineProps({
   reviews: {
     type: Array,
     required: true,
+  },
+  selectedKeyword: {
+    type: String,
+    default: "",
   },
 });
 </script>

@@ -19,6 +19,7 @@
     <!-- LAYER 2: Review Results -->
     <ReviewResults
       :reviews="reviews"
+      :selected-keyword="keyword"
       :has-more="hasMore"
       @load-more="loadMore"
     />
