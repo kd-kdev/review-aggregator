@@ -58,9 +58,14 @@ function mapBackendReviews(rawReviews) {
     author: r.steamid ? `User ${r.steamid}` : "Unknown",
     text: r.review,
     recommended: r.voted_up,
-    playtime: r.playtime || "N/A", // optional if backend provides
+
+    // Steam gives minutes
+    playtime:
+      typeof r.playtime_forever === "number"
+        ? Math.round(r.playtime_forever / 60)
+        : null,
+
     steam_purchase: r.steam_purchase,
-    received_for_free: r.received_for_free,
     written_during_early_access: r.written_during_early_access,
     steam_link: `https://store.steampowered.com/app/${r.appid}`,
   }));

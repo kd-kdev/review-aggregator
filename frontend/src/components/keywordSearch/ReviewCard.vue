@@ -1,5 +1,7 @@
 <script setup>
 import { ref, computed } from "vue";
+import thumbsUp from "@/assets/images/icon_thumbsUp.png";
+import thumbsDown from "@/assets/images/icon_thumbsDown.png";
 
 const props = defineProps({
   review: {
@@ -23,12 +25,19 @@ const playtime = computed(() =>
     : ""
 );
 
-// Tags (handle nulls safely)
 const tags = computed(() => {
-  const t = [];
-  if (props.review.written_during_early_access) t.push("Early Access Review");
-  if (props.review.received_for_free) t.push("Product received for free");
-  return t;
+  const result = [];
+
+  // Steam logic: NOT steam_purchase === received for free
+  if (props.review.steam_purchase === false) {
+    result.push("Received for free");
+  }
+
+  if (props.review.written_during_early_access) {
+    result.push("Early Access Review");
+  }
+
+  return result;
 });
 
 // Steam link
@@ -65,7 +74,6 @@ const highlightedText = computed(() => {
   return truncatedText.value.replace(regex, '<mark>$1</mark>');
 });
 
-
 </script>
 
 <template>
@@ -74,9 +82,9 @@ const highlightedText = computed(() => {
     <header class="heading">
       <div class="thumb">
         <img
-          src="@/assets/images/icon_thumbsUp.png"
-          :alt="recText"
           class="thumb-img"
+          :src="review.recommended ? thumbsUp : thumbsDown"
+          alt=""
         />
       </div>
 
@@ -90,7 +98,9 @@ const highlightedText = computed(() => {
 
         <!-- Row 2 -->
         <div class="row-bottom">
-          <span class="playtime">{{ playtime }}</span>
+          <span v-if="review.playtime" class="playtime">
+            {{ review.playtime }} hrs on record
+          </span>
 
           <div class="extras">
             <span v-for="(tag, idx) in tags" :key="idx" class="tag">
