@@ -1,6 +1,6 @@
 <template>
   <section class="keyword-search">
-    <!-- LAYER 1 -->
+    <!-- LAYER 1: Search + Summary -->
     <div class="controls">
       <KeywordSearch
         :appid="appid"
@@ -12,12 +12,16 @@
         :summary="summary"
       />
     </div>
+
+    <!-- Optional Filters -->
     <ReviewFilters />
 
-    <!-- LAYER 2 -->
-    <ReviewResults :reviews="reviews" />
-    
-
+    <!-- LAYER 2: Review Results -->
+    <ReviewResults
+      :reviews="reviews"
+      :has-more="hasMore"
+      @load-more="loadMore"
+    />
   </section>
 </template>
 
@@ -37,106 +41,73 @@ const props = defineProps({
 });
 
 const keyword = ref("");
-//const reviews = ref([]);
+const reviews = ref([]);
 const hasMore = ref(false);
-//const summary = ref(null);
-
-// SUMMARY PLACEHOLDER VALUE FOR TESTING
-const summary = ref({
-  keyword: "example",
-  occurrences: 123,
-  reviews_with_keyword: 45,
-});
-
-// REVIEWS FOR TESTING UI
-const reviews = ref([
-  {
-    id: 1,
-    author: "User123",
-    text: "This game is amazing and relaxing",
-    recommended: true,
-  },
-  {
-    id: 2,
-    author: "User456",
-    text: "Too grindy for my taste",
-    recommended: false,
-  },
-  {
-    id: 3,
-    author: "User456",
-    text: "Too grindy for my taste",
-    recommended: false,
-  },
-  {
-    id: 1,
-    author: "User123",
-    text: "This game is amazing and relaxing",
-    recommended: true,
-  },
-  {
-    id: 2,
-    author: "User456",
-    text: "Too grindy for my taste",
-    recommended: false,
-  },
-  {
-    id: 3,
-    author: "User456",
-    text: "Too grindy for my taste",
-    recommended: false,
-  },
-  {
-    id: 1,
-    author: "User123",
-    text: "This game is amazing and relaxing",
-    recommended: true,
-  },
-  {
-    id: 2,
-    author: "User456",
-    text: "Too grindy for my taste",
-    recommended: false,
-  },
-  {
-    id: 3,
-    author: "User456",
-    text: "Too grindy for my taste",
-    recommended: false,
-  },
-]);
-
-
+const summary = ref(null);
 
 const offset = ref(0);
-
 const limit = 20;
 
-function onSearch(payload) {
-  keyword.value = payload.keyword;
-  reviews.value = payload.reviews;
-  hasMore.value = payload.has_more;
-  offset.value = payload.reviews.length;
-
-  summary.value = {
-    keyword: payload.keyword,
-    occurrences: payload.occurrences,
-    reviews_with_keyword: payload.reviews_with_keyword,
-  };
+/**
+ * Maps backend review objects to the shape expected by ReviewCard.vue
+ */
+function mapBackendReviews(rawReviews) {
+  return rawReviews.map((r) => ({
+    id: r.recommendationid,
+    author: r.steamid ? `User ${r.steamid}` : "Unknown",
+    text: r.review,
+    recommended: r.voted_up,
+    playtime: r.playtime || "N/A", // optional if backend provides
+    steam_purchase: r.steam_purchase,
+    received_for_free: r.received_for_free,
+    written_during_early_access: r.written_during_early_access,
+    steam_link: `https://store.steampowered.com/app/${r.appid}`,
+  }));
 }
 
+/**
+ * Called when user performs a keyword search
+ */
+async function onSearch(payload) {
+  keyword.value = payload.keyword;
+  offset.value = 0;
+
+  try {
+    const res = await fetch(
+      `/api/games/${props.appid}/reviews/keyword?keyword=${encodeURIComponent(
+        keyword.value
+      )}&limit=${limit}&offset=${offset.value}`
+    );
+    const data = await res.json();
+
+    reviews.value = mapBackendReviews(data.reviews);
+    hasMore.value = data.has_more;
+    offset.value = reviews.value.length;
+
+    summary.value = data.summary;
+  } catch (err) {
+    console.error("Failed to fetch reviews:", err);
+  }
+}
+
+/**
+ * Called when user clicks "Load more"
+ */
 async function loadMore() {
-  const res = await fetch(
-    `/api/games/${props.appid}/search_reviews` +
-    `?keyword=${encodeURIComponent(keyword.value)}` +
-    `&limit=${limit}&offset=${offset.value}`
-  );
+  try {
+    const res = await fetch(
+      `/api/games/${props.appid}/reviews/keyword?keyword=${encodeURIComponent(
+        keyword.value
+      )}&limit=${limit}&offset=${offset.value}`
+    );
+    const data = await res.json();
 
-  const data = await res.json();
-
-  reviews.value.push(...data.reviews);
-  offset.value += data.reviews.length;
-  hasMore.value = data.has_more;
+    reviews.value.push(...mapBackendReviews(data.reviews));
+    offset.value += data.reviews.length;
+    hasMore.value = data.has_more;
+  } catch (err) {
+    console.error("Failed to load more reviews:", err);
+  }
 }
 </script>
 

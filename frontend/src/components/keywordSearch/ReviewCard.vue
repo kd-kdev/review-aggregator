@@ -1,47 +1,105 @@
 <script setup>
-defineProps({
+import { ref, computed } from "vue";
+
+const props = defineProps({
   review: {
     type: Object,
     required: true,
   },
+  keyword: {
+    type: String,
+    default: "",
+  },
 });
+
+// Recommended / Not Recommended
+const isRecommended = computed(() => !!props.review.recommended);
+const recText = computed(() => (isRecommended.value ? "Recommended" : "Not Recommended"));
+
+// Playtime display (optional)
+const playtime = computed(() =>
+  props.review.playtime && props.review.playtime !== "N/A"
+    ? `${props.review.playtime} hrs on record`
+    : ""
+);
+
+// Tags (handle nulls safely)
+const tags = computed(() => {
+  const t = [];
+  if (props.review.written_during_early_access) t.push("Early Access Review");
+  if (props.review.received_for_free) t.push("Product received for free");
+  return t;
+});
+
+// Steam link
+const steamUrl = computed(() =>
+  props.review.steam_link ||
+  (props.review.steamid && props.review.recommendationid
+    ? `https://steamcommunity.com/profiles/${props.review.steamid}/recommended/${props.review.recommendationid}`
+    : "https://store.steampowered.com")
+);
+
+// Read More functionality
+const maxLength = 300; // characters before "Read More"
+const expanded = ref(false);
+
+const truncatedText = computed(() => {
+  const text = props.review.text || "";
+  return text.length > maxLength && !expanded.value
+    ? text.slice(0, maxLength) + "..."
+    : text;
+});
+
+function toggleReadMore() {
+  expanded.value = !expanded.value;
+}
+
+const highlightedText = computed(() => {
+  if (!props.review.text) return "";
+
+  const safeKeyword = props.keyword?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!safeKeyword) return truncatedText.value;
+
+  const regex = new RegExp(`(${safeKeyword})`, "gi");
+
+  return truncatedText.value.replace(regex, '<mark>$1</mark>');
+});
+
+
 </script>
 
 <template>
   <article class="review-card">
     <!-- HEADER -->
     <header class="heading">
-      <!-- Thumbs icon -->
       <div class="thumb">
         <img
           src="@/assets/images/icon_thumbsUp.png"
-          alt="Recommended"
+          :alt="recText"
           class="thumb-img"
         />
       </div>
 
-      <!-- Right side of header -->
       <div class="meta">
         <!-- Row 1 -->
         <div class="row-top">
-          <span class="rec-text recommended">
-            Recommended
+          <span class="rec-text" :class="{ recommended: isRecommended }">
+            {{ recText }}
           </span>
         </div>
 
         <!-- Row 2 -->
         <div class="row-bottom">
-          <span class="playtime">
-            125.4 hrs on record
-          </span>
+          <span class="playtime">{{ playtime }}</span>
 
           <div class="extras">
-            <span class="tag">Early Access Review</span>
-            <span class="tag">Product received for free</span>
+            <span v-for="(tag, idx) in tags" :key="idx" class="tag">
+              {{ tag }}
+            </span>
 
             <a
               class="orig-link"
-              href="https://store.steampowered.com"
+              :href="steamUrl"
               target="_blank"
               rel="noopener noreferrer"
               title="View on Steam"
@@ -60,12 +118,14 @@ defineProps({
     <!-- BODY -->
     <div class="body">
       <p class="review-text">
-        This game is incredibly relaxing and well designed.
-        I’ve spent dozens of hours exploring the world and it
-        keeps getting better with every update.
-
-        Highly recommended if you enjoy slow-paced, atmospheric games.
-        INSERT READ MORE OPTION IF ABOVE CERTAIN CHAR LENGTH
+        <span v-html="highlightedText"></span>
+        <button
+          v-if="props.review.text && props.review.text.length > maxLength"
+          class="read-more-btn"
+          @click="toggleReadMore"
+        >
+          {{ expanded ? "Collapse" : "Read More" }}
+        </button>
       </p>
     </div>
   </article>
@@ -87,7 +147,6 @@ defineProps({
   gap: 0.75rem;
   align-items: center;
   margin-bottom: 0.75rem;
-  background-color: goldenrod;
 }
 
 .thumb {
@@ -102,63 +161,46 @@ defineProps({
   object-fit: contain;
 }
 
-/* META container */
 .meta {
   flex: 1;
   height: 44px;
-  /* SAME as thumb */
   display: flex;
   flex-direction: column;
   justify-content: space-between;
 }
 
-
-/* Row 1: Recommended */
 .row-top {
   display: flex;
   align-items: center;
 }
 
-/* Row 2: hours left, extras right */
+.row-top .recommended {
+  color: #1a7f37;
+}
+
 .row-bottom {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-
-.row-top,
-.row-bottom {
-  display: flex;
-  align-items: center;
-  min-height: 0;
-}
-
-/* Hours */
 .playtime {
   font-size: 11px;
   color: #666;
+  line-height: 1.2;
 }
 
 .rec-text {
   font-size: 1rem;
-  /* 16px */
   font-weight: 700;
 }
 
-.playtime {
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-/* Tags + link */
 .extras {
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
 
-/* Modern tag style */
 .tag {
   background: #f3f3f3;
   color: #444;
@@ -167,7 +209,6 @@ defineProps({
   border-left: 3px solid #b5b5b5;
 }
 
-/* Steam link */
 .orig-link {
   width: 22px;
   height: 22px;
@@ -187,12 +228,34 @@ defineProps({
   fill: currentColor;
 }
 
-/* BODY */
 .review-text {
   margin: 0;
   white-space: pre-wrap;
   line-height: 1.45;
   font-size: 0.95rem;
   color: #222;
+}
+
+/* Read more button */
+.read-more-btn {
+  background: none;
+  border: none;
+  color: #1a7f37;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-left: 0.25rem;
+  padding: 0;
+}
+
+.read-more-btn:hover {
+  text-decoration: underline;
+}
+
+.highlight {
+  background-color: orange;
+  color: #000;
+  /* optional: make text readable */
+  padding: 0 2px;
+  border-radius: 2px;
 }
 </style>
