@@ -1,3 +1,4 @@
+# game search functionality
 from flask import Blueprint, request, jsonify
 from sqlalchemy import text
 from app.extensions import db
