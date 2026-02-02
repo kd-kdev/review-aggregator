@@ -22,6 +22,16 @@
       :has-more="hasMore"
       @load-more="loadMore"
     />
+
+    <!-- LAYER 3: Load more button -->
+    <button
+    v-if="hasMore"
+    class="load-more-btn"
+    @click="loadMore"
+    >
+    Load More Reviews
+  </button>
+
   </section>
 </template>
 
@@ -42,11 +52,11 @@ const props = defineProps({
 
 const keyword = ref("");
 const reviews = ref([]);
-const hasMore = ref(false);
 const summary = ref(null);
 
 const offset = ref(0);
 const limit = 20;
+const hasMore = ref(false);
 
 /**
  * Maps backend review objects to the shape expected by ReviewCard.vue
@@ -97,6 +107,8 @@ async function onSearch(payload) {
  * Called when user clicks "Load more"
  */
 async function loadMore() {
+  if (!hasMore.value) return; // no more reviews
+
   try {
     const res = await fetch(
       `/api/games/${props.appid}/reviews/keyword?keyword=${encodeURIComponent(
@@ -105,9 +117,9 @@ async function loadMore() {
     );
     const data = await res.json();
 
-    reviews.value.push(...mapBackendReviews(data.reviews));
-    offset.value += data.reviews.length;
-    hasMore.value = data.has_more;
+    reviews.value.push(...mapBackendReviews(data.reviews)); // append new reviews
+    offset.value += data.reviews.length; // increase offset
+    hasMore.value = data.has_more; // update hasMore
   } catch (err) {
     console.error("Failed to load more reviews:", err);
   }
@@ -143,5 +155,20 @@ async function loadMore() {
   align-self: stretch;
   /* fills height */
   background-color: black;
+}
+
+.load-more-btn {
+  margin: 1rem auto 0 auto;
+  display: block;
+  padding: 0.5rem 1rem;
+  border: none;
+  background-color: #1a7f37;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.load-more-btn:hover {
+  background-color: #155d28;
 }
 </style>
